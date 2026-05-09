@@ -14,7 +14,7 @@ interface Integration {
 }
 
 const OAUTH_INTEGRATIONS = [
-  { id: "google", label: "Gmail & Google Calendar", description: "Read/send emails, schedule meetings", href: `${API_URL}/auth/google/login` },
+  { id: "google", label: "Gmail & Google Calendar", description: "Read/send emails, schedule meetings", href: `${API_URL}/auth/google/login?integration=true` },
   { id: "microsoft", label: "Outlook & Microsoft Teams", description: "Read/send emails, send Teams messages", href: `${API_URL}/auth/microsoft/login` },
   { id: "slack", label: "Slack", description: "Send and read Slack messages", href: `${API_URL}/auth/slack/login` },
 ];
