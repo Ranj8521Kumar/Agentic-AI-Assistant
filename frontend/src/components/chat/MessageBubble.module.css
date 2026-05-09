@@ -1,0 +1,67 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 24px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.userRow {
+  flex-direction: row-reverse;
+}
+
+.assistantRow {
+  flex-direction: row;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.bubble {
+  max-width: 72%;
+  min-width: 0;
+}
+
+.userBubble {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
+  padding: 10px 14px;
+}
+
+.assistantBubble {
+  background: transparent;
+  padding: 4px 0;
+}
+
+.content {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.65;
+}
+
+.toolEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  background: var(--text-secondary);
+  border-radius: 1px;
+  animation: pulse 1s ease-in-out infinite;
+  vertical-align: middle;
+}

@@ -1,0 +1,239 @@
+.sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.logoIcon {
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.logoName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.newChat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 10px;
+  padding: 9px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.newChat:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sectionLabel {
+  padding: 8px 14px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.convList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 6px;
+}
+
+.empty {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-disabled);
+}
+
+.convItem {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+  border: none;
+  background: none;
+}
+
+.convItem:hover {
+  background: var(--bg-hover);
+}
+
+.convItem.active {
+  background: var(--bg-active);
+}
+
+.convTitle {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.convItem.active .convTitle {
+  color: var(--text-primary);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.integrations {
+  padding: 6px 6px 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.integration {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.intIcon {
+  font-size: 12px;
+  width: 18px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.intLabel {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.intStatus {
+  font-size: 10px;
+}
+
+.connected {
+  color: var(--success);
+}
+
+.disconnected {
+  color: var(--text-muted);
+}
+
+.settingsLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+  transition: color 0.15s, background 0.15s;
+  text-decoration: none;
+}
+.settingsLink:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+
+/* User row */
+.userRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.avatarFallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-active);
+  border: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.userText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.userName {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.userEmail {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logoutBtn {
+  font-size: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color 0.15s;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.logoutBtn:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}

@@ -1,0 +1,51 @@
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--tool-bg);
+  border: 1px solid var(--tool-border);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Status colours */
+.running .icon { color: var(--tool-running); animation: spin 1.2s linear infinite; }
+.running .label { color: var(--tool-running); }
+
+.success .icon { color: var(--tool-success); }
+.success .label { color: var(--tool-success); }
+
+.error .icon { color: var(--tool-error); }
+.error .label { color: var(--tool-error); }
+
+.awaiting_confirmation .icon { color: var(--info); }
+.awaiting_confirmation .label { color: var(--info); }
