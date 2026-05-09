@@ -84,6 +84,7 @@ class Settings(BaseSettings):
         "Mail.Send",
         "Calendars.ReadWrite",
         "Chat.ReadWrite",
+        "OnlineMeetings.ReadWrite",
         "offline_access",
     ]
 
