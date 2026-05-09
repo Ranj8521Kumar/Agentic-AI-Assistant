@@ -35,7 +35,7 @@ class AuditService:
             outcome=outcome,
             user_id=user_id,
             workspace_id=workspace_id,
-            metadata=metadata,
+            event_metadata=metadata,
             ip_address=ip_address,
             created_at=datetime.now(timezone.utc),
         )

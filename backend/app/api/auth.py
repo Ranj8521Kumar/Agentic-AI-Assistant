@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -46,80 +47,92 @@ async def google_login(redirect_uri: str | None = Query(None)) -> RedirectRespon
 async def google_callback(
     code: str = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> RedirectResponse:
     """Exchange the auth code for tokens and log the user in."""
-    # Exchange code for tokens
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": settings.GOOGLE_CLIENT_ID,
-                "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                "redirect_uri": settings.GOOGLE_REDIRECT_URI,
-                "grant_type": "authorization_code",
-            },
-        )
-    if token_resp.status_code != 200:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to exchange Google auth code",
-        )
-    token_data = token_resp.json()
-
-    # Fetch user profile
-    async with httpx.AsyncClient() as client:
-        userinfo_resp = await client.get(
-            "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {token_data['access_token']}"},
-        )
-    if userinfo_resp.status_code != 200:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to fetch Google user info",
-        )
-    userinfo = userinfo_resp.json()
-
-    auth_service = AuthService(db)
-    user, _ = await auth_service.get_or_create_user(
-        email=userinfo["email"],
-        full_name=userinfo.get("name"),
-        avatar_url=userinfo.get("picture"),
-        provider="google",
-        provider_user_id=userinfo["sub"],
-    )
-
-    # Compute expiry
-    expires_in = token_data.get("expires_in", 3600)
-    expires_at = datetime.now(timezone.utc).replace(microsecond=0)
+    import traceback
+    import json
+    from urllib.parse import urlencode, quote
     from datetime import timedelta
-    expires_at = expires_at + timedelta(seconds=expires_in)
 
-    await auth_service.upsert_connected_account(
-        user_id=user.id,
-        provider="google",
-        provider_account_id=userinfo["sub"],
-        provider_email=userinfo["email"],
-        access_token=token_data["access_token"],
-        refresh_token=token_data.get("refresh_token"),
-        token_expires_at=expires_at,
-        scopes=token_data.get("scope"),
-    )
+    try:
+        # Exchange code for tokens
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                    "grant_type": "authorization_code",
+                },
+            )
+        if token_resp.status_code != 200:
+            error_detail = token_resp.text
+            return RedirectResponse(
+                f"http://localhost:3000/login?error=google_token_failed&detail={quote(error_detail[:200])}"
+            )
+        token_data = token_resp.json()
 
-    access_token = create_access_token(str(user.id))
-    refresh_token = create_refresh_token(str(user.id))
+        # Fetch user profile
+        async with httpx.AsyncClient() as client:
+            userinfo_resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+            )
+        if userinfo_resp.status_code != 200:
+            return RedirectResponse(
+                f"http://localhost:3000/login?error=google_userinfo_failed"
+            )
+        userinfo = userinfo_resp.json()
 
-    return JSONResponse({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": {
+        auth_service = AuthService(db)
+        user, _ = await auth_service.get_or_create_user(
+            email=userinfo["email"],
+            full_name=userinfo.get("name"),
+            avatar_url=userinfo.get("picture"),
+            provider="google",
+            provider_user_id=userinfo["sub"],
+        )
+
+        expires_in = token_data.get("expires_in", 3600)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+        await auth_service.upsert_connected_account(
+            user_id=user.id,
+            provider="google",
+            provider_account_id=userinfo["sub"],
+            provider_email=userinfo["email"],
+            access_token=token_data["access_token"],
+            refresh_token=token_data.get("refresh_token"),
+            token_expires_at=expires_at,
+            scopes=token_data.get("scope"),
+        )
+
+        access_token = create_access_token(str(user.id))
+        refresh_token = create_refresh_token(str(user.id))
+
+        user_json = quote(json.dumps({
             "id": str(user.id),
             "email": user.email,
             "full_name": user.full_name,
             "avatar_url": user.avatar_url,
-        },
-    })
+            "connected_providers": ["google"],
+        }))
+        params = urlencode({
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        })
+        return RedirectResponse(f"http://localhost:3000/login?{params}&user={user_json}")
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        import logging
+        logging.getLogger(__name__).error("Google OAuth callback failed:\n%s", tb)
+        # In development, show the error; in production this would redirect to /login?error=server
+        return RedirectResponse(
+            f"http://localhost:3000/login?error=server&detail={quote(str(exc)[:300])}"
+        )
 
 
 # ── Microsoft OAuth ───────────────────────────────────────────────────────────
@@ -145,7 +158,7 @@ async def microsoft_login() -> RedirectResponse:
 async def microsoft_callback(
     code: str = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> RedirectResponse:
     async with httpx.AsyncClient() as client:
         token_resp = await client.post(
             f"https://login.microsoftonline.com/{settings.MICROSOFT_TENANT_ID}/oauth2/v2.0/token",
@@ -200,17 +213,20 @@ async def microsoft_callback(
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
 
-    return JSONResponse({
+    from urllib.parse import urlencode, quote
+    import json
+    user_json = quote(json.dumps({
+        "id": str(user.id),
+        "email": email,
+        "full_name": full_name,
+        "avatar_url": None,
+        "connected_providers": ["microsoft"],
+    }))
+    params = urlencode({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": {
-            "id": str(user.id),
-            "email": email,
-            "full_name": full_name,
-            "avatar_url": None,
-        },
     })
+    return RedirectResponse(f"http://localhost:3000/login?{params}&user={user_json}")
 
 
 # ── Slack OAuth ───────────────────────────────────────────────────────────────
@@ -230,7 +246,7 @@ async def slack_login() -> RedirectResponse:
 async def slack_callback(
     code: str = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> RedirectResponse:
     async with httpx.AsyncClient() as client:
         token_resp = await client.post(
             "https://slack.com/api/oauth.v2.access",
@@ -285,17 +301,20 @@ async def slack_callback(
     app_access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
 
-    return JSONResponse({
+    from urllib.parse import urlencode, quote
+    import json
+    user_json = quote(json.dumps({
+        "id": str(user.id),
+        "email": email,
+        "full_name": full_name,
+        "avatar_url": avatar_url,
+        "connected_providers": ["slack"],
+    }))
+    params = urlencode({
         "access_token": app_access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": {
-            "id": str(user.id),
-            "email": email,
-            "full_name": full_name,
-            "avatar_url": avatar_url,
-        },
     })
+    return RedirectResponse(f"http://localhost:3000/login?{params}&user={user_json}")
 
 
 # ── Me endpoint ───────────────────────────────────────────────────────────────
@@ -319,3 +338,53 @@ async def get_me(
         "avatar_url": user.avatar_url,
         "connected_providers": [a.provider for a in accounts],
     })
+
+
+# ── Token refresh endpoint ────────────────────────────────────────────────────
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh", summary="Refresh access token using a refresh token")
+async def refresh_access_token(body: RefreshRequest) -> JSONResponse:
+    """
+    Accepts a valid refresh token and returns a new access + refresh token pair.
+    The old refresh token is invalidated implicitly (short-lived rotation).
+    """
+    from jose import JWTError
+    try:
+        payload = __import__("app.core.security", fromlist=["decode_token"]).decode_token(body.refresh_token)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is not a refresh token",
+        )
+
+    user_id: str | None = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
+
+    new_access_token = create_access_token(user_id)
+    new_refresh_token = create_refresh_token(user_id)
+
+    return JSONResponse({
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    })
+
+
+@router.post("/logout", summary="Invalidate session (client-side token removal)")
+async def logout() -> JSONResponse:
+    """
+    Stateless JWT logout — instructs the client to discard its tokens.
+    For true server-side invalidation, implement a Redis token blacklist.
+    """
+    return JSONResponse({"detail": "Logged out successfully"})

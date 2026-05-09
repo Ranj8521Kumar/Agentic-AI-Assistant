@@ -62,8 +62,17 @@ class AuthService:
         self.db.add(user)
         await self.db.flush()  # get the ID without committing
 
-        # Auto-create a personal workspace
-        slug = email.split("@")[0].lower().replace(".", "-")[:50]
+        # Auto-create a personal workspace with a unique slug
+        import secrets
+        base_slug = email.split("@")[0].lower().replace(".", "-")[:50]
+        # Ensure slug uniqueness by checking the DB
+        slug = base_slug
+        existing = await self.db.execute(
+            select(Workspace).where(Workspace.slug == slug)
+        )
+        if existing.scalar_one_or_none() is not None:
+            slug = f"{base_slug}-{secrets.token_hex(3)}"
+
         workspace = Workspace(name=f"{full_name or email}'s Workspace", slug=slug)
         self.db.add(workspace)
         await self.db.flush()
@@ -71,7 +80,7 @@ class AuthService:
         member = WorkspaceMember(
             workspace_id=workspace.id,
             user_id=user.id,
-            role=WorkspaceRole.OWNER,
+            role=WorkspaceRole.OWNER.value,  # pass "owner" string directly
         )
         self.db.add(member)
         return user, True
