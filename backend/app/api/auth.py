@@ -27,18 +27,31 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 
 @router.get("/google/login", summary="Initiate Google OAuth flow")
-async def google_login(redirect_uri: str | None = Query(None)) -> RedirectResponse:
+async def google_login(
+    redirect_uri: str | None = Query(None),
+    integration: bool = Query(False)
+) -> RedirectResponse:
     """Redirect the user to Google's OAuth consent screen."""
-    scopes = " ".join(settings.GOOGLE_SCOPES)
+    scopes = settings.GOOGLE_SCOPES.copy()
+    if integration:
+        scopes.extend([
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/calendar",
+        ])
+    
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
         "response_type": "code",
-        "scope": scopes,
+        "scope": " ".join(scopes),
         "access_type": "offline",
         "prompt": "consent",
         "include_granted_scopes": "true",
     }
+    # Pass 'integration' state so the callback knows it was an integration request
+    if integration:
+        params["state"] = "integration=true"
+        
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
     return RedirectResponse(url)
 
