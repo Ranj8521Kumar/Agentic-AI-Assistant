@@ -1,10 +1,10 @@
 # ── Secrets (NEVER commit these) ────────────────────────────────────────────────
-backend/.env
 .env
-.env.local
-.env.*.local
-*.pem
-*.key
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 # ── Python ────────────────────────────────────────────────────────────────────────
 __pycache__/
