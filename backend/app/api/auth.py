@@ -263,13 +263,17 @@ async def slack_callback(
 
     authed_user = data.get("authed_user", {})
     slack_user_id = authed_user.get("id", "")
-    access_token = authed_user.get("access_token") or data.get("access_token", "")
+    # Use the BOT token (xoxb-) for posting messages — NOT the user token (xoxp-)
+    # The bot token is at data["access_token"]; user token is at authed_user["access_token"]
+    bot_token = data.get("access_token", "")
+    bot_user_id = data.get("bot_user_id", "")
 
-    # Fetch Slack user profile
+    # Fetch Slack user profile using the user token (for profile info only)
+    user_token = authed_user.get("access_token") or bot_token
     async with httpx.AsyncClient() as client:
         profile_resp = await client.get(
             "https://slack.com/api/users.info",
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers={"Authorization": f"Bearer {user_token}"},
             params={"user": slack_user_id},
         )
     profile_data = profile_resp.json()
@@ -292,10 +296,10 @@ async def slack_callback(
         provider="slack",
         provider_account_id=slack_user_id,
         provider_email=email,
-        access_token=access_token,
+        access_token=bot_token,  # ← store BOT token, not user token
         refresh_token=None,
         token_expires_at=None,
-        scopes=authed_user.get("scope") or settings.SLACK_SCOPES,
+        scopes=data.get("scope") or settings.SLACK_SCOPES,
     )
 
     app_access_token = create_access_token(str(user.id))

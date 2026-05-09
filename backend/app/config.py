@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     SLACK_CLIENT_ID: str = ""
     SLACK_CLIENT_SECRET: str = ""
     SLACK_REDIRECT_URI: str = "http://localhost:8000/api/auth/slack/callback"
-    SLACK_SCOPES: str = "channels:read,chat:write,im:read,im:write,users:read"
+    SLACK_SCOPES: str = "channels:read,channels:history,chat:write,chat:write.public,im:read,im:write,im:history,users:read,users:read.email"
 
     # ── Jira ─────────────────────────────────────────────────────────────────
     JIRA_BASE_URL: str = ""
