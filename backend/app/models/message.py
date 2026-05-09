@@ -33,7 +33,10 @@ class Message(Base):
         index=True,
     )
 
-    role: Mapped[MessageRole] = mapped_column(Enum(MessageRole), nullable=False)
+    role: Mapped[MessageRole] = mapped_column(
+        Enum(MessageRole, values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
     content: Mapped[str | None] = mapped_column(Text)
 
     # Structured tool call / result metadata stored as JSON

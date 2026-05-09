@@ -64,12 +64,11 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
+    # Basic login scopes only — gmail/calendar scopes are requested via /api/integrations
     GOOGLE_SCOPES: List[str] = [
         "openid",
         "email",
         "profile",
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/calendar",
     ]
 
     # ── Microsoft OAuth ──────────────────────────────────────────────────────

@@ -32,7 +32,7 @@ class AuditEvent(Base):
     outcome: Mapped[str] = mapped_column(String(50), nullable=False, default="success")
 
     # Arbitrary JSON payload — NEVER store raw secrets here
-    metadata: Mapped[dict | None] = mapped_column(JSONB)
+    event_metadata: Mapped[dict | None] = mapped_column(JSONB, name="metadata")
 
     # Network context
     ip_address: Mapped[str | None] = mapped_column(String(45))  # IPv6 max length
