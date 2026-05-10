@@ -48,6 +48,9 @@ export function MessageBubble({ message }: Props) {
 
 /** Very simple markdown → HTML converter (no dependencies). */
 function formatContent(text: string): string {
+  // URL regex — matches http(s):// links
+  const URL_RE = /(https?:\/\/[^\s<>"]+)/g;
+
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -55,5 +58,13 @@ function formatContent(text: string): string {
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.*?)\*/g, "<em>$1</em>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\n/g, "<br/>");
+    .replace(/\n/g, "<br/>")
+    // Convert bare URLs into clickable links that wrap at any char
+    .replace(
+      URL_RE,
+      (url) =>
+        `<a href="${url}" target="_blank" rel="noopener noreferrer" ` +
+        `style="color:var(--accent);word-break:break-all;overflow-wrap:anywhere;">${url}</a>`
+    );
 }
+
