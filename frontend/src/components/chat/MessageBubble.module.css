@@ -27,8 +27,10 @@
 }
 
 .bubble {
-  max-width: 72%;
+  max-width: 78%;
   min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .userBubble {
@@ -47,6 +49,9 @@
   font-size: 14px;
   color: var(--text-primary);
   line-height: 1.65;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .toolEvents {
