@@ -88,7 +88,11 @@ def bootstrap_registry() -> None:
         SendOutlookEmailTool,
         ReadOutlookInboxTool,
     )
-    from app.tools.definitions.teams_tools import SendTeamsMessageTool, CreateTeamsMeetingTool
+    from app.tools.definitions.teams_tools import (
+        SendTeamsMessageTool,
+        CreateTeamsMeetingTool,
+        ReadTeamsMessagesTool,
+    )
 
     for tool in [
         SendEmailTool(),
@@ -107,5 +111,6 @@ def bootstrap_registry() -> None:
         ReadOutlookInboxTool(),
         SendTeamsMessageTool(),
         CreateTeamsMeetingTool(),
+        ReadTeamsMessagesTool(),
     ]:
         registry.register(tool)

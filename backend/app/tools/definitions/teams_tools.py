@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -429,3 +430,208 @@ class SendTeamsMessageTool(BaseTool):
             raise
         except Exception as exc:
             raise ToolExecutionError("teams_send_message", str(exc))
+
+
+class ReadTeamsMessagesTool(BaseTool):
+    """Read recent messages from a Teams 1-on-1 chat or all recent chats."""
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="teams_read_messages",
+            description=(
+                "Read recent messages from Microsoft Teams. "
+                "Optionally filter by a specific person's email to read your DM conversation with them. "
+                "If no email is provided, returns recent messages from all your latest chats. "
+                "Use this when the user wants to check, view, or read Teams messages or conversations."
+            ),
+            provider="microsoft",
+            requires_confirmation=False,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "recipient_email": {
+                        "type": "string",
+                        "description": (
+                            "Email of the person whose DM conversation you want to read. "
+                            "Leave empty to get messages from your most recent chats."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of messages to return per chat (default: 10, max: 50)",
+                    },
+                },
+                "required": [],
+            },
+        )
+
+    async def execute(
+        self, arguments: dict[str, Any], user_id: str, access_token: str
+    ) -> dict[str, Any]:
+        recipient_email: str | None = arguments.get("recipient_email")
+        limit: int = min(int(arguments.get("limit", 10)), 50)
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+
+                # ── Step 1: Fetch all chats with their members expanded ────────
+                chats_resp = await client.get(
+                    f"{GRAPH_BASE}/me/chats",
+                    params={
+                        "$expand": "members",
+                        "$top": "20",
+                        "$orderby": "lastMessagePreview/createdDateTime desc",
+                    },
+                    headers=headers,
+                )
+
+                if chats_resp.status_code == 401:
+                    raise ToolExecutionError(
+                        "teams_read_messages",
+                        (
+                            "Your Microsoft token has expired or is missing permissions. "
+                            "Go to Settings & Integrations → Outlook / Teams → Disconnect "
+                            "and reconnect your account."
+                        ),
+                    )
+
+                if not chats_resp.is_success:
+                    try:
+                        err = chats_resp.json().get("error", {})
+                        detail = f"{err.get('code', '')}: {err.get('message', chats_resp.text)}"
+                    except Exception:
+                        detail = chats_resp.text
+                    raise ToolExecutionError("teams_read_messages", f"Failed to fetch chats: {detail}")
+
+                all_chats: list[dict] = chats_resp.json().get("value", [])
+
+                if not all_chats:
+                    return {
+                        "success": True,
+                        "messages": [],
+                        "summary": "No Teams chats found.",
+                    }
+
+                # ── Step 2: Filter to a specific chat if email is given ────────
+                target_chats: list[dict] = []
+
+                if recipient_email:
+                    recipient_lower = recipient_email.lower()
+                    for chat in all_chats:
+                        members: list[dict] = chat.get("members", [])
+                        emails_in_chat = [
+                            (m.get("email") or "").lower() for m in members
+                        ]
+                        if recipient_lower in emails_in_chat:
+                            target_chats.append(chat)
+                            break  # oneOnOne — only one match expected
+
+                    if not target_chats:
+                        return {
+                            "success": True,
+                            "messages": [],
+                            "summary": (
+                                f"No chat conversation found with {recipient_email}. "
+                                "You may not have messaged this person before."
+                            ),
+                        }
+                else:
+                    # Use the most recent chats (up to 5)
+                    target_chats = all_chats[:5]
+
+                # ── Step 3: Fetch messages from each target chat ───────────────
+                result_conversations: list[dict] = []
+
+                for chat in target_chats:
+                    chat_id: str = chat.get("id", "")
+                    chat_type: str = chat.get("chatType", "oneOnOne")
+
+                    # Determine a human-readable chat name
+                    members: list[dict] = chat.get("members", [])
+                    member_names = [
+                        m.get("displayName") or m.get("email") or "Unknown"
+                        for m in members
+                    ]
+                    chat_label = ", ".join(member_names) if member_names else chat_id
+
+                    msgs_resp = await client.get(
+                        f"{GRAPH_BASE}/chats/{chat_id}/messages",
+                        params={
+                            "$top": str(limit),
+                            "$orderby": "createdDateTime desc",
+                        },
+                        headers=headers,
+                    )
+
+                    if not msgs_resp.is_success:
+                        result_conversations.append({
+                            "chat": chat_label,
+                            "chat_type": chat_type,
+                            "error": f"Could not fetch messages ({msgs_resp.status_code})",
+                            "messages": [],
+                        })
+                        continue
+
+                    raw_messages: list[dict] = msgs_resp.json().get("value", [])
+
+                    # Parse into a clean format
+                    parsed_messages = []
+                    for msg in raw_messages:
+                        sender_info = (msg.get("from") or {})
+                        sender_user = (sender_info.get("user") or {})
+                        sender_name = sender_user.get("displayName", "Unknown")
+
+                        body_content: str = (msg.get("body") or {}).get("content", "")
+                        body_text = re.sub(r"<[^>]+>", "", body_content).strip()
+
+                        if not body_text:
+                            continue  # skip system/empty messages
+
+                        parsed_messages.append({
+                            "sender": sender_name,
+                            "message": body_text,
+                            "timestamp": msg.get("createdDateTime", ""),
+                            "message_id": msg.get("id", ""),
+                        })
+
+                    result_conversations.append({
+                        "chat": chat_label,
+                        "chat_type": chat_type,
+                        "messages": parsed_messages,
+                    })
+
+                # ── Step 4: Build a readable summary ─────────────────────────
+                total_msgs = sum(len(c["messages"]) for c in result_conversations)
+                if recipient_email and result_conversations:
+                    first = result_conversations[0]
+                    msgs_preview = "; ".join(
+                        f'{m["sender"]}: "{m["message"][:60]}"'
+                        for m in first["messages"][:3]
+                    )
+                    summary = (
+                        f"Found {total_msgs} message(s) in your conversation with "
+                        f"{recipient_email}. Recent: {msgs_preview}"
+                    )
+                else:
+                    summary = (
+                        f"Fetched {total_msgs} message(s) across "
+                        f"{len(result_conversations)} recent chat(s)."
+                    )
+
+                return {
+                    "success": True,
+                    "conversations": result_conversations,
+                    "total_messages": total_msgs,
+                    "summary": summary,
+                }
+
+        except ToolExecutionError:
+            raise
+        except Exception as exc:
+            raise ToolExecutionError("teams_read_messages", str(exc))
