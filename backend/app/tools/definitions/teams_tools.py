@@ -59,80 +59,252 @@ class CreateTeamsMeetingTool(BaseTool):
         end_dt = arguments["end_datetime"]
         attendees = arguments.get("attendee_emails", [])
 
-        # Ensure ISO format with timezone
-        if not start_dt.endswith("Z") and "+" not in start_dt:
-            start_dt += "Z"
-        if not end_dt.endswith("Z") and "+" not in end_dt:
-            end_dt += "Z"
+        # ── Robust datetime normalisation ──────────────────────────────────────
+        # Microsoft Graph requires: "YYYY-MM-DDTHH:MM:SS" (no trailing Z for events)
+        def normalise_dt(raw: str, keep_z: bool = False) -> str:
+            from datetime import datetime as dt
+            raw = raw.strip()
+            raw_clean = raw.rstrip("Z").split("+")[0].split("-0")[0] if "T" in raw else raw
 
-        body: dict[str, Any] = {
+            formats = [
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%dT%I:%M %p",
+                "%Y-%m-%d %I:%M %p",
+                "%Y-%m-%dT%I:%M:%S %p",
+                "%d/%m/%YT%H:%M",
+                "%d/%m/%Y %H:%M",
+                "%m/%d/%YT%H:%M",
+                "%m/%d/%Y %H:%M",
+                "%Y-%m-%d",
+            ]
+            for fmt in formats:
+                try:
+                    parsed = dt.strptime(raw_clean, fmt)
+                    if keep_z:
+                        return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    return parsed.strftime("%Y-%m-%dT%H:%M:%S")
+                except ValueError:
+                    continue
+            # Last resort
+            return raw.rstrip("Z") if not keep_z else (raw if raw.endswith("Z") else raw + "Z")
+
+        # For /me/events the dateTime must NOT have a trailing Z (timeZone field handles it)
+        start_dt_plain = normalise_dt(start_dt, keep_z=False)
+        end_dt_plain   = normalise_dt(end_dt,   keep_z=False)
+        # For /me/onlineMeetings (fallback) Graph wants the Z suffix
+        start_dt_z = start_dt_plain + "Z"
+        end_dt_z   = end_dt_plain   + "Z"
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        # ── Strategy 1: /me/events with isOnlineMeeting (preferred) ───────────
+        # Uses Calendars.ReadWrite — no admin consent required.
+        # Graph auto-generates a Teams join URL when isOnlineMeeting=True.
+        event_body: dict[str, Any] = {
             "subject": subject,
-            "startDateTime": start_dt,
-            "endDateTime": end_dt,
+            "start": {"dateTime": start_dt_plain, "timeZone": "UTC"},
+            "end":   {"dateTime": end_dt_plain,   "timeZone": "UTC"},
+            "isOnlineMeeting": True,
+            "onlineMeetingProvider": "teamsForBusiness",
+            "attendees": [
+                {
+                    "emailAddress": {"address": email},
+                    "type": "required",
+                }
+                for email in attendees
+            ],
         }
 
         try:
             async with httpx.AsyncClient() as client:
-                # Step 1: Create the online meeting
                 resp = await client.post(
-                    f"{GRAPH_BASE}/me/onlineMeetings",
-                    json=body,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
+                    f"{GRAPH_BASE}/me/events",
+                    json=event_body,
+                    headers=headers,
                 )
-            resp.raise_for_status()
-            data = resp.json()
-            join_url = data.get("joinWebUrl", "")
-            meeting_id = data.get("id", "")
 
-            # Step 2: If attendees provided, send calendar invite via Outlook
-            if attendees:
-                event_body: dict[str, Any] = {
-                    "subject": subject,
-                    "start": {"dateTime": start_dt.rstrip("Z"), "timeZone": "UTC"},
-                    "end": {"dateTime": end_dt.rstrip("Z"), "timeZone": "UTC"},
-                    "isOnlineMeeting": True,
-                    "onlineMeetingProvider": "teamsForBusiness",
-                    "onlineMeeting": {"joinUrl": join_url},
-                    "attendees": [
-                        {
-                            "emailAddress": {"address": email},
-                            "type": "required",
+            # ── 401 = token expired or missing scopes → reconnect required ────
+            if resp.status_code == 401:
+                raise ToolExecutionError(
+                    "teams_create_meeting",
+                    (
+                        "Your Microsoft account token has expired or is missing required permissions. "
+                        "Please go to Settings & Integrations → Outlook / Teams → "
+                        "Disconnect, then reconnect your account to refresh the token."
+                    ),
+                )
+
+            if resp.is_success:
+                data = resp.json()
+                # Prefer the Teams join URL; fall back to the Outlook web link
+                join_url = (
+                    (data.get("onlineMeeting") or {}).get("joinUrl", "")
+                    or data.get("webLink", "")
+                )
+                event_id = data.get("id", "")
+
+                # ── Explicitly email each attendee ────────────────────────────
+                # Calendar invites can silently fail across tenants (e.g. personal
+                # account → org/edu account). Sending a direct email guarantees
+                # delivery with all meeting details.
+                email_errors: list[str] = []
+                if attendees:
+                    for attendee_email in attendees:
+                        mail_body: dict[str, Any] = {
+                            "message": {
+                                "subject": f"Meeting Invitation: {subject}",
+                                "body": {
+                                    "contentType": "HTML",
+                                    "content": (
+                                        f"<p>Hello,</p>"
+                                        f"<p>You have been invited to the following meeting:</p>"
+                                        f"<table style='border-collapse:collapse;font-family:Arial,sans-serif'>"
+                                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Title</td>"
+                                        f"<td style='padding:6px 12px'>{subject}</td></tr>"
+                                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Date &amp; Time</td>"
+                                        f"<td style='padding:6px 12px'>{start_dt_plain} UTC – {end_dt_plain} UTC</td></tr>"
+                                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Join Link</td>"
+                                        f"<td style='padding:6px 12px'>"
+                                        f"<a href='{join_url}'>Click here to join the meeting</a>"
+                                        f"</td></tr>"
+                                        f"</table>"
+                                        f"<br><p>Please add this to your calendar.</p>"
+                                    ),
+                                },
+                                "toRecipients": [
+                                    {"emailAddress": {"address": attendee_email}}
+                                ],
+                            },
+                            "saveToSentItems": "true",
                         }
-                        for email in attendees
-                    ],
-                    "body": {
-                        "contentType": "HTML",
-                        "content": (
-                            f"<p>You are invited to: <b>{subject}</b></p>"
-                            f"<p>Join Teams Meeting: <a href='{join_url}'>{join_url}</a></p>"
-                        ),
-                    },
-                }
-                async with httpx.AsyncClient() as client:
-                    await client.post(
-                        f"{GRAPH_BASE}/me/events",
-                        json=event_body,
-                        headers={
-                            "Authorization": f"Bearer {access_token}",
-                            "Content-Type": "application/json",
-                        },
-                    )
+                        async with httpx.AsyncClient() as client:
+                            mail_resp = await client.post(
+                                f"{GRAPH_BASE}/me/sendMail",
+                                json=mail_body,
+                                headers=headers,
+                            )
+                        if not mail_resp.is_success:
+                            try:
+                                merr = mail_resp.json().get("error", {})
+                                email_errors.append(
+                                    f"{attendee_email}: {merr.get('message', mail_resp.text)}"
+                                )
+                            except Exception:
+                                email_errors.append(f"{attendee_email}: {mail_resp.text}")
 
-            return {
-                "success": True,
-                "meeting_id": meeting_id,
-                "join_url": join_url,
-                "attendees_invited": len(attendees),
-                "summary": (
-                    f"Teams meeting '{subject}' created. Join URL: {join_url}. "
-                    f"{len(attendees)} attendee(s) invited via calendar."
-                ),
+                email_note = (
+                    f" Email invitations sent to {len(attendees)} attendee(s)."
+                    if not email_errors
+                    else f" Email delivery failed for: {'; '.join(email_errors)}"
+                )
+
+                return {
+                    "success": True,
+                    "meeting_id": event_id,
+                    "join_url": join_url,
+                    "attendees_invited": len(attendees),
+                    "email_errors": email_errors,
+                    "summary": (
+                        f"Teams meeting '{subject}' created successfully. "
+                        f"Join URL: {join_url}. "
+                        f"{email_note}"
+                    ),
+                }
+
+            # Capture Strategy 1 error for combined error reporting
+            try:
+                err1 = resp.json().get("error", {})
+                s1_detail = f"{err1.get('code', '')}: {err1.get('message', resp.text)}"
+            except Exception:
+                s1_detail = resp.text
+
+            # ── Strategy 2: /me/onlineMeetings (fallback) ─────────────────────
+            # Requires OnlineMeetings.ReadWrite + Teams license + admin consent.
+            meeting_body: dict[str, Any] = {
+                "subject": subject,
+                "startDateTime": start_dt_z,
+                "endDateTime":   end_dt_z,
             }
-        except Exception as e:
-            raise ToolExecutionError("teams_create_meeting", str(e))
+
+
+            async with httpx.AsyncClient() as client:
+                resp2 = await client.post(
+                    f"{GRAPH_BASE}/me/onlineMeetings",
+                    json=meeting_body,
+                    headers=headers,
+                )
+
+            if resp2.is_success:
+                data2 = resp2.json()
+                join_url = data2.get("joinWebUrl", "")
+                meeting_id = data2.get("id", "")
+
+                # Also send calendar invites to attendees if provided
+                if attendees:
+                    invite_body: dict[str, Any] = {
+                        "subject": subject,
+                        "start": {"dateTime": start_dt_plain, "timeZone": "UTC"},
+                        "end":   {"dateTime": end_dt_plain,   "timeZone": "UTC"},
+                        "isOnlineMeeting": True,
+                        "onlineMeetingProvider": "teamsForBusiness",
+                        "onlineMeeting": {"joinUrl": join_url},
+                        "attendees": [
+                            {"emailAddress": {"address": e}, "type": "required"}
+                            for e in attendees
+                        ],
+                        "body": {
+                            "contentType": "HTML",
+                            "content": (
+                                f"<p>You are invited to: <b>{subject}</b></p>"
+                                f"<p>Join Teams Meeting: <a href='{join_url}'>{join_url}</a></p>"
+                            ),
+                        },
+                    }
+                    async with httpx.AsyncClient() as client:
+                        await client.post(
+                            f"{GRAPH_BASE}/me/events",
+                            json=invite_body,
+                            headers=headers,
+                        )
+
+                return {
+                    "success": True,
+                    "meeting_id": meeting_id,
+                    "join_url": join_url,
+                    "attendees_invited": len(attendees),
+                    "summary": (
+                        f"Teams meeting '{subject}' created. "
+                        f"Join URL: {join_url}. "
+                        f"{len(attendees)} attendee(s) invited via calendar."
+                    ),
+                }
+
+            # Both strategies failed — report both errors
+            try:
+                err2 = resp2.json().get("error", {})
+                s2_detail = f"{err2.get('code', '')}: {err2.get('message', resp2.text)}"
+            except Exception:
+                s2_detail = resp2.text
+
+            raise ToolExecutionError(
+                "teams_create_meeting",
+                (
+                    f"Both meeting creation strategies failed.\n"
+                    f"  [Calendar /me/events]        {resp.status_code}: {s1_detail}\n"
+                    f"  [/me/onlineMeetings fallback] {resp2.status_code}: {s2_detail}"
+                ),
+            )
+
+        except ToolExecutionError:
+            raise
+        except Exception as exc:
+            raise ToolExecutionError("teams_create_meeting", str(exc))
 
 
 class SendTeamsMessageTool(BaseTool):
@@ -227,9 +399,9 @@ class SendTeamsMessageTool(BaseTool):
             return {
                 "success": True,
                 "message_id": data.get("id"),
-                "summary": f"Teams message sent successfully.",
+                "summary": "Teams message sent successfully.",
             }
         except ToolExecutionError:
             raise
-        except Exception as e:
-            raise ToolExecutionError("teams_send_message", str(e))
+        except Exception as exc:
+            raise ToolExecutionError("teams_send_message", str(exc))
