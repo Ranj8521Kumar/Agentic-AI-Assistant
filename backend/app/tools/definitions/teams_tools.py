@@ -368,12 +368,23 @@ class SendTeamsMessageTool(BaseTool):
                         headers=headers,
                     )
                 elif recipient_email:
-                    # 1-on-1 DM — first create/get the chat
+                    # 1-on-1 DM — Graph API requires BOTH members (self + recipient)
+                    # Step 1: Get the current user's ID
+                    me_resp = await client.get(f"{GRAPH_BASE}/me", headers=headers)
+                    me_resp.raise_for_status()
+                    my_id = me_resp.json()["id"]
+
+                    # Step 2: Create the chat with both members
                     chat_resp = await client.post(
                         f"{GRAPH_BASE}/chats",
                         json={
                             "chatType": "oneOnOne",
                             "members": [
+                                {
+                                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                                    "roles": ["owner"],
+                                    "user@odata.bind": f"{GRAPH_BASE}/users/{my_id}",
+                                },
                                 {
                                     "@odata.type": "#microsoft.graph.aadUserConversationMember",
                                     "roles": ["owner"],
@@ -383,7 +394,17 @@ class SendTeamsMessageTool(BaseTool):
                         },
                         headers=headers,
                     )
-                    chat_resp.raise_for_status()
+                    if not chat_resp.is_success:
+                        try:
+                            err = chat_resp.json().get("error", {})
+                            detail = f"{err.get('code', '')}: {err.get('message', chat_resp.text)}"
+                        except Exception:
+                            detail = chat_resp.text
+                        raise ToolExecutionError(
+                            "teams_send_message",
+                            f"Failed to create chat with {recipient_email}: {detail}. "
+                            "Note: Both users must be in the same Microsoft 365 tenant for DMs.",
+                        )
                     chat_id = chat_resp.json()["id"]
 
                     resp = await client.post(
