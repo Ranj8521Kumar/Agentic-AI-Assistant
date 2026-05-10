@@ -79,6 +79,9 @@ class Settings(BaseSettings):
         "http://localhost:8000/api/auth/microsoft/callback"
     )
     MICROSOFT_SCOPES: List[str] = [
+        "openid",
+        "profile",
+        "email",
         "User.Read",
         "Mail.ReadWrite",
         "Mail.Send",
