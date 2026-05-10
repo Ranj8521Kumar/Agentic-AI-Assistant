@@ -44,6 +44,28 @@ def build_system_prompt(
             "Tell the user to connect an integration in Settings before you can take actions.\n"
         )
 
+    # Build explicit meeting routing rules based on what's connected
+    meeting_rules = ""
+    if "microsoft" in connected_providers and "google" in connected_providers:
+        meeting_rules = (
+            "\nMEETING SCHEDULING RULES:\n"
+            "- If the user asks for a Teams / Microsoft meeting → use teams_create_meeting tool.\n"
+            "- If the user asks for a Google Meet / Calendar meeting → use calendar_schedule_meeting tool.\n"
+            "- If unspecified, prefer teams_create_meeting when Microsoft is connected.\n"
+        )
+    elif "microsoft" in connected_providers:
+        meeting_rules = (
+            "\nMEETING SCHEDULING RULES:\n"
+            "- ALWAYS use the teams_create_meeting tool to schedule any meeting or interview.\n"
+            "- This creates a Teams online meeting with a join URL and emails the attendees.\n"
+            "- Do NOT say you cannot schedule meetings — you CAN via Microsoft Teams.\n"
+        )
+    elif "google" in connected_providers:
+        meeting_rules = (
+            "\nMEETING SCHEDULING RULES:\n"
+            "- Use the calendar_schedule_meeting tool to schedule meetings via Google Calendar.\n"
+        )
+
     return f"""You are an enterprise AI assistant for {workspace_ctx}.
 {user_ctx}
 Current time: {now}
@@ -51,14 +73,15 @@ Current time: {now}
 CAPABILITIES:
 You can help users with:
 - Gmail: read inbox, read threads, send emails
-- Outlook: read inbox, send emails
+- Outlook / Microsoft: read inbox, send emails
 - Slack: send messages, read channels and DMs
-- Microsoft Teams: send messages
-- Google Calendar / Meet: schedule meetings, generate meeting links
+- Microsoft Teams: CREATE online meetings (generates a Teams join URL), send meeting invites to attendees, send direct messages
+- Google Calendar / Meet: schedule meetings, generate Google Meet links
 - Jira: create, update, and search issues
 - Notion: read pages, write page content, append notes
 
 {tools_section}
+{meeting_rules}
 
 BEHAVIOR:
 - Always think step by step before taking action.
@@ -72,3 +95,4 @@ BEHAVIOR:
 When you need to call a tool, use the structured function-calling interface.
 After each tool call, summarize the result for the user in plain language.
 """
+
