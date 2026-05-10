@@ -18,6 +18,7 @@ from app.llm.prompt_builder import build_system_prompt
 from app.models.message import Message, MessageRole
 from app.models.tool_execution import ToolExecution, ToolExecutionStatus
 from app.services.auth_service import AuthService
+from app.services.ms_token_service import refresh_microsoft_token
 from app.services.token_vault import token_vault
 from app.tools.registry import registry
 
@@ -140,7 +141,7 @@ class AgentOrchestrator:
                 if tool.definition.requires_confirmation:
                     yield f"{TOOL_EVENT_PREFIX}{json.dumps({'tool': tool_name, 'status': 'awaiting_confirmation'})}\n"
 
-                # Get the access token for this provider
+                # ── Get a valid access token (auto-refresh if expired) ─────────
                 provider = tool.definition.provider
                 account = await self.auth_service.get_connected_account(user_id, provider)
                 if account is None or account.encrypted_access_token is None:
@@ -154,7 +155,22 @@ class AgentOrchestrator:
                     yield f"{TOOL_EVENT_PREFIX}{json.dumps({'tool': tool_name, 'status': 'error', 'message': error_msg})}\n"
                     continue
 
-                access_token = token_vault.retrieve(account.encrypted_access_token)
+                # For Microsoft provider, transparently refresh if token is stale
+                if provider == "microsoft":
+                    try:
+                        access_token = await refresh_microsoft_token(self.auth_service, account)
+                    except RuntimeError as refresh_err:
+                        error_msg = str(refresh_err)
+                        messages.append(LLMMessage(
+                            role="tool",
+                            tool_call_id=tool_call["id"],
+                            content=json.dumps({"error": error_msg}),
+                            name=tool_name,
+                        ))
+                        yield f"{TOOL_EVENT_PREFIX}{json.dumps({'tool': tool_name, 'status': 'error', 'message': error_msg})}\n"
+                        continue
+                else:
+                    access_token = token_vault.retrieve(account.encrypted_access_token)
 
                 # Create ToolExecution audit record (started)
                 started = datetime.now(timezone.utc)
