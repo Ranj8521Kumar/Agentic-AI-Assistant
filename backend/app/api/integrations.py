@@ -82,7 +82,7 @@ async def jira_connect(
         provider="jira",
         provider_account_id=email,
         provider_email=email,
-        access_token=api_token,
+        access_token=f"{email}:{api_token}",  # combined for basic auth in tool
         refresh_token=None,
         token_expires_at=None,
         scopes="read:jira-work write:jira-work",
