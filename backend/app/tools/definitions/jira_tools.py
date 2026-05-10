@@ -10,8 +10,22 @@ from app.tools.base import BaseTool, ToolDefinition, ToolExecutionError
 
 
 def _build_jira(access_token: str) -> Jira:
+    """
+    Build a Jira client using Atlassian API token basic auth.
+    access_token is stored as 'email:api_token' in the database.
+    """
     from app.config import settings
-    return Jira(url=settings.JIRA_BASE_URL, token=access_token, cloud=True)
+    if ":" in access_token:
+        email, api_token = access_token.split(":", 1)
+    else:
+        # Legacy / fallback — treat entire value as token with no email
+        email, api_token = "", access_token
+    return Jira(
+        url=settings.JIRA_BASE_URL,
+        username=email,
+        password=api_token,
+        cloud=True,
+    )
 
 
 class CreateJiraIssueTool(BaseTool):
