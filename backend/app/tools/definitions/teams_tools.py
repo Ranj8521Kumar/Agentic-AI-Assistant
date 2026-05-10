@@ -174,7 +174,10 @@ class CreateTeamsMeetingTool(BaseTool):
                                         f"<a href='{join_url}'>Click here to join the meeting</a>"
                                         f"</td></tr>"
                                         f"</table>"
-                                        f"<br><p>Please add this to your calendar.</p>"
+                                        f"<br><p><b>Note:</b> You may be asked to sign in with a Microsoft account. "
+                                        f"If you don't have one, click <b>'Join as a guest'</b> on the login page "
+                                        f"to enter the meeting directly from your browser — no account required.</p>"
+                                        f"<p>Please add this to your calendar.</p>"
                                     ),
                                 },
                                 "toRecipients": [
