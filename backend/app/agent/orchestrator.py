@@ -18,6 +18,7 @@ from app.llm.prompt_builder import build_system_prompt
 from app.models.message import Message, MessageRole
 from app.models.tool_execution import ToolExecution, ToolExecutionStatus
 from app.services.auth_service import AuthService
+from app.services.google_token_service import refresh_google_token
 from app.services.ms_token_service import refresh_microsoft_token
 from app.services.token_vault import token_vault
 from app.tools.registry import registry
@@ -155,8 +156,21 @@ class AgentOrchestrator:
                     yield f"{TOOL_EVENT_PREFIX}{json.dumps({'tool': tool_name, 'status': 'error', 'message': error_msg})}\n"
                     continue
 
-                # For Microsoft provider, transparently refresh if token is stale
-                if provider == "microsoft":
+                # Transparently refresh stale tokens for Google and Microsoft
+                if provider == "google":
+                    try:
+                        access_token = await refresh_google_token(self.auth_service, account)
+                    except RuntimeError as refresh_err:
+                        error_msg = str(refresh_err)
+                        messages.append(LLMMessage(
+                            role="tool",
+                            tool_call_id=tool_call["id"],
+                            content=json.dumps({"error": error_msg}),
+                            name=tool_name,
+                        ))
+                        yield f"{TOOL_EVENT_PREFIX}{json.dumps({'tool': tool_name, 'status': 'error', 'message': error_msg})}\n"
+                        continue
+                elif provider == "microsoft":
                     try:
                         access_token = await refresh_microsoft_token(self.auth_service, account)
                     except RuntimeError as refresh_err:

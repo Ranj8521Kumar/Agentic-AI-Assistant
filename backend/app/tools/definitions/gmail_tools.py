@@ -11,6 +11,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from app.tools.base import BaseTool, ToolDefinition, ToolExecutionError
+from app.config import settings
 
 
 class SendEmailTool(BaseTool):
@@ -43,7 +44,12 @@ class SendEmailTool(BaseTool):
         cc = arguments.get("cc")
 
         try:
-            creds = Credentials(token=access_token)
+            creds = Credentials(
+                token=access_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CLIENT_ID,
+                client_secret=settings.GOOGLE_CLIENT_SECRET,
+            )
             service = build("gmail", "v1", credentials=creds)
 
             message = MIMEText(body)
@@ -99,7 +105,12 @@ class ReadInboxTool(BaseTool):
         query = arguments.get("query", "")
 
         try:
-            creds = Credentials(token=access_token)
+            creds = Credentials(
+                token=access_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CLIENT_ID,
+                client_secret=settings.GOOGLE_CLIENT_SECRET,
+            )
             service = build("gmail", "v1", credentials=creds)
 
             list_result = service.users().messages().list(
@@ -152,7 +163,12 @@ class ReadThreadTool(BaseTool):
     ) -> dict[str, Any]:
         thread_id = arguments["thread_id"]
         try:
-            creds = Credentials(token=access_token)
+            creds = Credentials(
+                token=access_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CLIENT_ID,
+                client_secret=settings.GOOGLE_CLIENT_SECRET,
+            )
             service = build("gmail", "v1", credentials=creds)
             thread = service.users().threads().get(
                 userId="me", id=thread_id, format="metadata",
