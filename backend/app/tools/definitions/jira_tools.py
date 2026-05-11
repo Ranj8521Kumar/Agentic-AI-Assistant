@@ -101,10 +101,26 @@ class UpdateJiraIssueTool(BaseTool):
             if fields:
                 jira.update_issue_field(key=key, fields=fields)
             if arguments.get("status"):
-                for t in jira.get_issue_transitions(key):
-                    if t["name"].lower() == arguments["status"].lower():
-                        jira.issue_transition(key, t["id"])
+                transitions = jira.get_issue_transitions(key)
+                # Library returns: [{"name": str, "id": int, "to": str}, ...]
+                # "to" is the target status name string; "id" is an int
+                target_status = str(arguments["status"]).lower()
+                matched = False
+                for t in transitions:
+                    if str(t["to"]).lower() == target_status:
+                        # POST directly with stringified id — bypasses the broken
+                        # library helper that calls .lower() on the int id
+                        base_url = jira.resource_url("issue")
+                        url = f"{base_url}/{key}/transitions"
+                        jira.post(url, data={"transition": {"id": str(t["id"])}})
+                        matched = True
                         break
+                if not matched:
+                    available = [str(t["to"]) for t in transitions]
+                    raise ValueError(
+                        f"Status '{arguments['status']}' is not a valid transition. "
+                        f"Available transitions: {', '.join(available)}"
+                    )
             return {"success": True, "issue_key": key}
         except Exception as e:
             raise ToolExecutionError("jira_update_issue", str(e))

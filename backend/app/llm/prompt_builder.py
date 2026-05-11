@@ -66,6 +66,21 @@ def build_system_prompt(
             "- Use the calendar_schedule_meeting tool to schedule meetings via Google Calendar.\n"
         )
 
+    # Build explicit Jira routing rules
+    jira_rules = ""
+    if "jira" in connected_providers:
+        jira_rules = (
+            "\nJIRA TOOL ROUTING RULES:\n"
+            "- Use jira_create_issue ONLY when the user wants to CREATE a brand-new Jira issue/task/bug/story.\n"
+            "  Required arguments: project_key, summary. Optional: description, issue_type, priority.\n"
+            "- Use jira_update_issue ONLY when the user wants to MODIFY or UPDATE an EXISTING Jira issue "
+            "  (e.g. change status, edit summary/description, or update priority of an issue that already exists).\n"
+            "  Required argument: issue_key (e.g. KAN-1).\n"
+            "- Use jira_search_issues to SEARCH or LIST existing Jira issues using a JQL query.\n"
+            "- NEVER call jira_update_issue when the user's intent is to create a new issue — "
+            "  even if the conversation previously mentioned an existing issue.\n"
+        )
+
     return f"""You are an enterprise AI assistant for {workspace_ctx}.
 {user_ctx}
 Current time: {now}
@@ -82,6 +97,7 @@ You can help users with:
 
 {tools_section}
 {meeting_rules}
+{jira_rules}
 
 BEHAVIOR:
 - Always think step by step before taking action.
