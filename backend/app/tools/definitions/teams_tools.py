@@ -109,8 +109,8 @@ class CreateTeamsMeetingTool(BaseTool):
         # Graph auto-generates a Teams join URL when isOnlineMeeting=True.
         event_body: dict[str, Any] = {
             "subject": subject,
-            "start": {"dateTime": start_dt_plain, "timeZone": "UTC"},
-            "end":   {"dateTime": end_dt_plain,   "timeZone": "UTC"},
+            "start": {"dateTime": start_dt_plain, "timeZone": "Asia/Kolkata"},
+            "end":   {"dateTime": end_dt_plain,   "timeZone": "Asia/Kolkata"},
             "isOnlineMeeting": True,
             "onlineMeetingProvider": "teamsForBusiness",
             "attendees": [
@@ -169,7 +169,7 @@ class CreateTeamsMeetingTool(BaseTool):
                                         f"<tr><td style='padding:6px 12px;font-weight:bold'>Title</td>"
                                         f"<td style='padding:6px 12px'>{subject}</td></tr>"
                                         f"<tr><td style='padding:6px 12px;font-weight:bold'>Date &amp; Time</td>"
-                                        f"<td style='padding:6px 12px'>{start_dt_plain} UTC – {end_dt_plain} UTC</td></tr>"
+                                        f"<td style='padding:6px 12px'>{start_dt_plain} IST – {end_dt_plain} IST (GMT+5:30)</td></tr>"
                                         f"<tr><td style='padding:6px 12px;font-weight:bold'>Join Link</td>"
                                         f"<td style='padding:6px 12px'>"
                                         f"<a href='{join_url}'>Click here to join the meeting</a>"
@@ -253,8 +253,8 @@ class CreateTeamsMeetingTool(BaseTool):
                 if attendees:
                     invite_body: dict[str, Any] = {
                         "subject": subject,
-                        "start": {"dateTime": start_dt_plain, "timeZone": "UTC"},
-                        "end":   {"dateTime": end_dt_plain,   "timeZone": "UTC"},
+                        "start": {"dateTime": start_dt_plain, "timeZone": "Asia/Kolkata"},
+                        "end":   {"dateTime": end_dt_plain,   "timeZone": "Asia/Kolkata"},
                         "isOnlineMeeting": True,
                         "onlineMeetingProvider": "teamsForBusiness",
                         "onlineMeeting": {"joinUrl": join_url},

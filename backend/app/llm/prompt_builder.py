@@ -5,7 +5,7 @@ workspace info, connected tools, safety rules, and confirmation rules.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 SAFETY_RULES = """
@@ -27,7 +27,8 @@ def build_system_prompt(
     username: str | None = None,
 ) -> str:
     """Build the full system prompt for the agent."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M IST (GMT+5:30)")
     workspace_ctx = f"Workspace: {workspace_name}" if workspace_name else "Personal workspace"
     user_ctx = f"User: {username}" if username else ""
 
@@ -84,6 +85,7 @@ def build_system_prompt(
     return f"""You are an enterprise AI assistant for {workspace_ctx}.
 {user_ctx}
 Current time: {now}
+User timezone: Asia/Kolkata (IST, GMT+5:30) — always interpret times provided by the user as IST unless they explicitly specify another timezone. When scheduling meetings or calendar events, treat all bare times (e.g. "4pm", "tomorrow 10am") as IST.
 
 CAPABILITIES:
 You can help users with:

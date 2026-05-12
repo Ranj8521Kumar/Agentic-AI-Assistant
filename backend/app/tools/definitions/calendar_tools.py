@@ -70,9 +70,11 @@ class ScheduleMeetingTool(BaseTool):
         add_meet = arguments.get("add_meet_link", True)
 
         try:
+            IST = timezone(timedelta(hours=5, minutes=30))
             start_dt = datetime.fromisoformat(start_str)
             if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=timezone.utc)
+                # Treat bare datetimes from LLM as IST (user's local timezone)
+                start_dt = start_dt.replace(tzinfo=IST)
             end_dt = start_dt + timedelta(minutes=duration)
 
             creds = Credentials(
@@ -100,8 +102,8 @@ class ScheduleMeetingTool(BaseTool):
             event: dict[str, Any] = {
                 "summary": title,
                 "description": description,
-                "start": {"dateTime": start_dt.isoformat(), "timeZone": "UTC"},
-                "end": {"dateTime": end_dt.isoformat(), "timeZone": "UTC"},
+                "start": {"dateTime": start_dt.isoformat(), "timeZone": "Asia/Kolkata"},
+                "end": {"dateTime": end_dt.isoformat(), "timeZone": "Asia/Kolkata"},
                 "attendees": [{"email": e} for e in all_attendees],
             }
             if add_meet:
@@ -125,7 +127,7 @@ class ScheduleMeetingTool(BaseTool):
                 .get("uri", "")
             )
             html_link = created.get("htmlLink", "")
-            start_fmt = start_dt.strftime("%Y-%m-%d %H:%M UTC")
+            start_fmt = start_dt.strftime("%Y-%m-%d %H:%M IST")
 
             # ── Send Gmail emails to organizer + all external attendees ───────
             # Reason 1: Google's sendUpdates silently skips the organizer.
