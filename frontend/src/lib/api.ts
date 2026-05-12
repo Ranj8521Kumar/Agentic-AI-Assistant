@@ -172,15 +172,33 @@ export function streamChat(
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6);
-          if (data === "[DONE]") {
+
+          // Decode JSON-encoded text chunks; tool events are passed through raw
+          let decoded: string;
+          if (
+            data.startsWith("__tool_event__:") ||
+            data.startsWith("__conversation_id__:") ||
+            data === "[DONE]"
+          ) {
+            decoded = data;
+          } else {
+            try {
+              // Backend JSON-encodes text chunks to preserve \n and special chars
+              decoded = JSON.parse(data);
+            } catch {
+              decoded = data; // fallback: use raw if not valid JSON
+            }
+          }
+
+          if (decoded === "[DONE]") {
             onDone(foundConversationId);
             return;
           }
-          if (data.startsWith("__conversation_id__:")) {
-            foundConversationId = data.slice("__conversation_id__:".length);
+          if (decoded.startsWith("__conversation_id__:")) {
+            foundConversationId = decoded.slice("__conversation_id__:".length);
             continue;
           }
-          onChunk(data);
+          onChunk(decoded);
         }
       }
       onDone(foundConversationId);

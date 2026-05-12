@@ -104,7 +104,8 @@ class AgentOrchestrator:
                 final_text = response.content or ""
                 # Yield in small chunks so the frontend renders progressively
                 async for chunk in self._stream_text(final_text):
-                    yield chunk
+                    # JSON-encode the chunk so newlines/special chars survive SSE transport
+                    yield json.dumps(chunk)
                 return
 
             # LLM wants to call tools — add assistant message with tool_calls to context
@@ -237,7 +238,7 @@ class AgentOrchestrator:
                     ))
 
         # Safety valve — if we exit the loop without returning, yield a fallback
-        yield "I wasn't able to complete the task within the allowed steps. Please try rephrasing your request."
+        yield json.dumps("I wasn't able to complete the task within the allowed steps. Please try rephrasing your request.")
 
     async def _stream_text(self, text: str) -> AsyncIterator[str]:
         """Yield the final response text in small chunks (kept for compatibility)."""
