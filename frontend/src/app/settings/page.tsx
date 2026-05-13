@@ -13,10 +13,10 @@ interface Integration {
   scopes: string | null;
 }
 
-const OAUTH_INTEGRATIONS = [
-  { id: "google", label: "Gmail & Google Calendar", description: "Read/send emails, schedule meetings", href: `${API_URL}/auth/google/login?integration=true` },
-  { id: "microsoft", label: "Outlook & Microsoft Teams", description: "Read/send emails, send Teams messages", href: `${API_URL}/auth/microsoft/login` },
-  { id: "slack", label: "Slack", description: "Send and read Slack messages", href: `${API_URL}/auth/slack/login` },
+const OAUTH_BASE = [
+  { id: "google",    label: "Gmail & Google Calendar",    description: "Read/send emails, schedule meetings",    base: `${API_URL}/auth/google/login?integration=true` },
+  { id: "microsoft", label: "Outlook & Microsoft Teams",  description: "Read/send emails, send Teams messages",  base: `${API_URL}/auth/microsoft/login` },
+  { id: "slack",     label: "Slack",                      description: "Send and read Slack messages",           base: `${API_URL}/auth/slack/login` },
 ];
 
 const TOKEN_INTEGRATIONS = [
@@ -34,17 +34,58 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
 
+  const isConnected = (id: string) => integrations.some(i => i.provider === id);
+  const connectedEmail = (id: string) => integrations.find(i => i.provider === id)?.provider_email;
+
+  // OAuth hrefs start as base URLs (safe for SSR), then get link_token appended
+  // after the component mounts on the client (where localStorage is available).
+  const [oauthHrefs, setOauthHrefs] = useState<Record<string, string>>(
+    () => Object.fromEntries(OAUTH_BASE.map(o => [o.id, o.base]))
+  );
+
+  // Once mounted on client, inject the link_token so connecting a new provider
+  // attaches it to the already-logged-in user rather than creating a new account.
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+    setOauthHrefs(
+      Object.fromEntries(
+        OAUTH_BASE.map(o => {
+          const sep = o.base.includes("?") ? "&" : "?";
+          return [o.id, `${o.base}${sep}link_token=${encodeURIComponent(token)}`];
+        })
+      )
+    );
+  }, []);
+
+  const OAUTH_INTEGRATIONS = OAUTH_BASE.map(o => ({ ...o, href: oauthHrefs[o.id] }));
+
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) { router.replace("/login"); return; }
+
+    // Detect OAuth callback result (?linked=provider or ?error=...)
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const linked = sp.get("linked");
+      const error  = sp.get("error");
+      if (linked) {
+        setFeedback(prev => ({ ...prev, [linked]: `✓ ${linked.charAt(0).toUpperCase() + linked.slice(1)} connected!` }));
+        setTimeout(() => setFeedback(prev => { const n = { ...prev }; delete n[linked]; return n; }), 5000);
+        window.history.replaceState({}, "", "/settings");
+      }
+      if (error) {
+        setFeedback(prev => ({ ...prev, _global: `Connection error: ${error}` }));
+        window.history.replaceState({}, "", "/settings");
+      }
+    }
+
     apiGet<Integration[]>("/integrations")
       .then(setIntegrations)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [router]);
 
-  const isConnected = (id: string) => integrations.some(i => i.provider === id);
-  const connectedEmail = (id: string) => integrations.find(i => i.provider === id)?.provider_email;
 
   const disconnect = async (provider: string) => {
     if (!confirm(`Disconnect ${provider}? This will stop the assistant from accessing it.`)) return;

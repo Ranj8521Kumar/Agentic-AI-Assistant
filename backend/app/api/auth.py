@@ -29,16 +29,24 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.get("/google/login", summary="Initiate Google OAuth flow")
 async def google_login(
     redirect_uri: str | None = Query(None),
-    integration: bool = Query(False)
+    integration: bool = Query(False),
+    link_token: str | None = Query(None),
 ) -> RedirectResponse:
     """Redirect the user to Google's OAuth consent screen."""
     scopes = settings.GOOGLE_SCOPES.copy()
-    if integration:
+    if integration or link_token:
         scopes.extend([
             "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/calendar",
         ])
-    
+
+    # Build state: carry link_token so the callback can attach to the existing user
+    state_parts = []
+    if integration:
+        state_parts.append("integration=true")
+    if link_token:
+        state_parts.append(f"link_token={link_token}")
+
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -48,10 +56,9 @@ async def google_login(
         "prompt": "consent",
         "include_granted_scopes": "true",
     }
-    # Pass 'integration' state so the callback knows it was an integration request
-    if integration:
-        params["state"] = "integration=true"
-        
+    if state_parts:
+        params["state"] = "&".join(state_parts)
+
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
     return RedirectResponse(url)
 
@@ -59,6 +66,7 @@ async def google_login(
 @router.get("/google/callback", summary="Google OAuth callback")
 async def google_callback(
     code: str = Query(...),
+    state: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Exchange the auth code for tokens and log the user in."""
@@ -99,7 +107,44 @@ async def google_callback(
             )
         userinfo = userinfo_resp.json()
 
+        # Parse state to detect link_token (linking to existing user)
+        state_params: dict[str, str] = {}
+        if state:
+            for part in state.split("&"):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    state_params[k] = v
+        link_token = state_params.get("link_token")
+
         auth_service = AuthService(db)
+        expires_in = token_data.get("expires_in", 3600)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+        if link_token:
+            # ── Link-to-existing-user flow ────────────────────────────────────
+            # Attach Google account to the already-logged-in user; don't replace tokens.
+            from app.core.security import decode_token
+            from jose import JWTError
+            try:
+                payload = decode_token(link_token)
+                user_id = uuid.UUID(payload["sub"])
+            except (JWTError, KeyError, ValueError):
+                return RedirectResponse("http://localhost:3000/settings?error=invalid_link_token")
+
+            await auth_service.upsert_connected_account(
+                user_id=user_id,
+                provider="google",
+                provider_account_id=userinfo["sub"],
+                provider_email=userinfo["email"],
+                access_token=token_data["access_token"],
+                refresh_token=token_data.get("refresh_token"),
+                token_expires_at=expires_at,
+                scopes=token_data.get("scope"),
+            )
+            await db.commit()
+            return RedirectResponse("http://localhost:3000/settings?linked=google")
+
+        # ── Normal login flow ─────────────────────────────────────────────────
         user, _ = await auth_service.get_or_create_user(
             email=userinfo["email"],
             full_name=userinfo.get("name"),
@@ -107,10 +152,6 @@ async def google_callback(
             provider="google",
             provider_user_id=userinfo["sub"],
         )
-
-        expires_in = token_data.get("expires_in", 3600)
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-
         await auth_service.upsert_connected_account(
             user_id=user.id,
             provider="google",
@@ -121,10 +162,8 @@ async def google_callback(
             token_expires_at=expires_at,
             scopes=token_data.get("scope"),
         )
-
         access_token = create_access_token(str(user.id))
         refresh_token = create_refresh_token(str(user.id))
-
         user_json = quote(json.dumps({
             "id": str(user.id),
             "email": user.email,
@@ -132,17 +171,13 @@ async def google_callback(
             "avatar_url": user.avatar_url,
             "connected_providers": ["google"],
         }))
-        params = urlencode({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-        })
+        params = urlencode({"access_token": access_token, "refresh_token": refresh_token})
         return RedirectResponse(f"http://localhost:3000/login?{params}&user={user_json}")
 
     except Exception as exc:
         tb = traceback.format_exc()
         import logging
         logging.getLogger(__name__).error("Google OAuth callback failed:\n%s", tb)
-        # In development, show the error; in production this would redirect to /login?error=server
         return RedirectResponse(
             f"http://localhost:3000/login?error=server&detail={quote(str(exc)[:300])}"
         )
@@ -151,15 +186,19 @@ async def google_callback(
 # ── Microsoft OAuth ───────────────────────────────────────────────────────────
 
 @router.get("/microsoft/login", summary="Initiate Microsoft OAuth flow")
-async def microsoft_login() -> RedirectResponse:
+async def microsoft_login(
+    link_token: str | None = Query(None),
+) -> RedirectResponse:
     scopes = " ".join(settings.MICROSOFT_SCOPES)
-    params = {
+    params: dict[str, str] = {
         "client_id": settings.MICROSOFT_CLIENT_ID,
         "response_type": "code",
         "redirect_uri": settings.MICROSOFT_REDIRECT_URI,
         "scope": scopes,
         "response_mode": "query",
     }
+    if link_token:
+        params["state"] = link_token
     url = (
         f"https://login.microsoftonline.com/{settings.MICROSOFT_TENANT_ID}"
         f"/oauth2/v2.0/authorize?" + urlencode(params)
@@ -170,6 +209,7 @@ async def microsoft_login() -> RedirectResponse:
 @router.get("/microsoft/callback", summary="Microsoft OAuth callback")
 async def microsoft_callback(
     code: str = Query(...),
+    state: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     async with httpx.AsyncClient() as client:
@@ -199,58 +239,72 @@ async def microsoft_callback(
     full_name = profile.get("displayName")
     ms_user_id = profile.get("id", "")
 
-    auth_service = AuthService(db)
-    user, _ = await auth_service.get_or_create_user(
-        email=email,
-        full_name=full_name,
-        avatar_url=None,
-        provider="microsoft",
-        provider_user_id=ms_user_id,
-    )
-
-    expires_in = token_data.get("expires_in", 3600)
     from datetime import timedelta
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-
-    await auth_service.upsert_connected_account(
-        user_id=user.id,
-        provider="microsoft",
-        provider_account_id=ms_user_id,
-        provider_email=email,
-        access_token=token_data["access_token"],
-        refresh_token=token_data.get("refresh_token"),
-        token_expires_at=expires_at,
-        scopes=token_data.get("scope"),
-    )
-
-    access_token = create_access_token(str(user.id))
-    refresh_token = create_refresh_token(str(user.id))
-
     from urllib.parse import urlencode, quote
     import json
+
+    auth_service = AuthService(db)
+    expires_in = token_data.get("expires_in", 3600)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+    # state carries link_token when linking from settings page
+    link_token = state if state else None
+    if link_token:
+        from app.core.security import decode_token
+        from jose import JWTError
+        try:
+            payload = decode_token(link_token)
+            user_id = uuid.UUID(payload["sub"])
+        except (JWTError, KeyError, ValueError):
+            return RedirectResponse("http://localhost:3000/settings?error=invalid_link_token")
+
+        await auth_service.upsert_connected_account(
+            user_id=user_id,
+            provider="microsoft",
+            provider_account_id=ms_user_id,
+            provider_email=email,
+            access_token=token_data["access_token"],
+            refresh_token=token_data.get("refresh_token"),
+            token_expires_at=expires_at,
+            scopes=token_data.get("scope"),
+        )
+        await db.commit()
+        return RedirectResponse("http://localhost:3000/settings?linked=microsoft")
+
+    # Normal login flow
+    user, _ = await auth_service.get_or_create_user(
+        email=email, full_name=full_name, avatar_url=None,
+        provider="microsoft", provider_user_id=ms_user_id,
+    )
+    await auth_service.upsert_connected_account(
+        user_id=user.id, provider="microsoft", provider_account_id=ms_user_id,
+        provider_email=email, access_token=token_data["access_token"],
+        refresh_token=token_data.get("refresh_token"),
+        token_expires_at=expires_at, scopes=token_data.get("scope"),
+    )
+    access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id))
     user_json = quote(json.dumps({
-        "id": str(user.id),
-        "email": email,
-        "full_name": full_name,
-        "avatar_url": None,
-        "connected_providers": ["microsoft"],
+        "id": str(user.id), "email": email, "full_name": full_name,
+        "avatar_url": None, "connected_providers": ["microsoft"],
     }))
-    params = urlencode({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-    })
+    params = urlencode({"access_token": access_token, "refresh_token": refresh_token})
     return RedirectResponse(f"http://localhost:3000/login?{params}&user={user_json}")
 
 
 # ── Slack OAuth ───────────────────────────────────────────────────────────────
 
 @router.get("/slack/login", summary="Initiate Slack OAuth flow")
-async def slack_login() -> RedirectResponse:
-    params = {
+async def slack_login(
+    link_token: str | None = Query(None),
+) -> RedirectResponse:
+    params: dict[str, str] = {
         "client_id": settings.SLACK_CLIENT_ID,
         "scope": settings.SLACK_SCOPES,
         "redirect_uri": settings.SLACK_REDIRECT_URI,
     }
+    if link_token:
+        params["state"] = link_token
     url = "https://slack.com/oauth/v2/authorize?" + urlencode(params)
     return RedirectResponse(url)
 
@@ -258,6 +312,7 @@ async def slack_login() -> RedirectResponse:
 @router.get("/slack/callback", summary="Slack OAuth callback")
 async def slack_callback(
     code: str = Query(...),
+    state: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     async with httpx.AsyncClient() as client:
@@ -295,42 +350,47 @@ async def slack_callback(
     full_name = slack_profile.get("real_name")
     avatar_url = slack_profile.get("image_192")
 
-    auth_service = AuthService(db)
-    user, _ = await auth_service.get_or_create_user(
-        email=email,
-        full_name=full_name,
-        avatar_url=avatar_url,
-        provider="slack",
-        provider_user_id=slack_user_id,
-    )
-
-    await auth_service.upsert_connected_account(
-        user_id=user.id,
-        provider="slack",
-        provider_account_id=slack_user_id,
-        provider_email=email,
-        access_token=bot_token,  # ← store BOT token, not user token
-        refresh_token=None,
-        token_expires_at=None,
-        scopes=data.get("scope") or settings.SLACK_SCOPES,
-    )
-
-    app_access_token = create_access_token(str(user.id))
-    refresh_token = create_refresh_token(str(user.id))
-
     from urllib.parse import urlencode, quote
     import json
+
+    auth_service = AuthService(db)
+    link_token = state if state else None
+
+    if link_token:
+        from app.core.security import decode_token
+        from jose import JWTError
+        try:
+            payload = decode_token(link_token)
+            user_id = uuid.UUID(payload["sub"])
+        except (JWTError, KeyError, ValueError):
+            return RedirectResponse("http://localhost:3000/settings?error=invalid_link_token")
+
+        await auth_service.upsert_connected_account(
+            user_id=user_id, provider="slack",
+            provider_account_id=slack_user_id, provider_email=email,
+            access_token=bot_token, refresh_token=None,
+            token_expires_at=None, scopes=data.get("scope") or settings.SLACK_SCOPES,
+        )
+        await db.commit()
+        return RedirectResponse("http://localhost:3000/settings?linked=slack")
+
+    # Normal login flow
+    user, _ = await auth_service.get_or_create_user(
+        email=email, full_name=full_name, avatar_url=avatar_url,
+        provider="slack", provider_user_id=slack_user_id,
+    )
+    await auth_service.upsert_connected_account(
+        user_id=user.id, provider="slack", provider_account_id=slack_user_id,
+        provider_email=email, access_token=bot_token, refresh_token=None,
+        token_expires_at=None, scopes=data.get("scope") or settings.SLACK_SCOPES,
+    )
+    app_access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id))
     user_json = quote(json.dumps({
-        "id": str(user.id),
-        "email": email,
-        "full_name": full_name,
-        "avatar_url": avatar_url,
-        "connected_providers": ["slack"],
+        "id": str(user.id), "email": email, "full_name": full_name,
+        "avatar_url": avatar_url, "connected_providers": ["slack"],
     }))
-    params = urlencode({
-        "access_token": app_access_token,
-        "refresh_token": refresh_token,
-    })
+    params = urlencode({"access_token": app_access_token, "refresh_token": refresh_token})
     return RedirectResponse(f"http://localhost:3000/login?{params}&user={user_json}")
 
 
