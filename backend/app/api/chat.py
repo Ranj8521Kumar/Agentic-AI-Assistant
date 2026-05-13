@@ -102,7 +102,11 @@ async def send_message(
             if chunk.startswith(TOOL_EVENT_PREFIX):
                 yield f"data: {chunk}\n\n"
             else:
-                full_response_chunks.append(chunk)
+                try:
+                    text_chunk = json.loads(chunk)
+                except Exception:
+                    text_chunk = chunk
+                full_response_chunks.append(text_chunk)
                 yield f"data: {chunk}\n\n"
 
         # Persist the full assistant response
