@@ -49,7 +49,7 @@ class CreateJiraIssueTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         from app.config import settings
         try:
             jira = _build_jira(access_token)
@@ -88,7 +88,7 @@ class UpdateJiraIssueTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         try:
             jira = _build_jira(access_token)
             key = arguments["issue_key"]
@@ -144,7 +144,7 @@ class SearchJiraIssuesTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         try:
             jira = _build_jira(access_token)
             results = jira.jql(arguments["jql"], limit=min(int(arguments.get("max_results", 10)), 50))

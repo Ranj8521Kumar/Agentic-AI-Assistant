@@ -56,9 +56,7 @@ class ScheduleMeetingTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         import base64
         from email.mime.text import MIMEText
 
@@ -225,9 +223,7 @@ class ListEventsTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         max_results = min(int(arguments.get("max_results", 10)), 50)
         time_min = arguments.get("time_min") or datetime.now(timezone.utc).isoformat()
 

@@ -35,9 +35,7 @@ class SendEmailTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         to = arguments["to"]
         subject = arguments["subject"]
         body = arguments["body"]
@@ -98,9 +96,7 @@ class ReadInboxTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         max_results = min(int(arguments.get("max_results", 10)), 50)
         query = arguments.get("query", "")
 
@@ -158,9 +154,7 @@ class ReadThreadTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         thread_id = arguments["thread_id"]
         try:
             creds = Credentials(

@@ -68,9 +68,7 @@ class SendSlackMessageTool(BaseTool):
         # If nothing matched, return as-is and let Slack API give the real error
         return channel
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         channel = arguments["channel"]
         text = arguments["text"]
         try:
@@ -118,9 +116,7 @@ class ReadSlackChannelTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         channel = arguments["channel"]
         limit = min(int(arguments.get("limit", 20)), 100)
         try:

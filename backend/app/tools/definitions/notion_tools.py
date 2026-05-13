@@ -26,7 +26,7 @@ class ReadNotionPageTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         page_id = arguments["page_id"].split("-")[-1].replace("-", "")
         try:
             client = AsyncClient(auth=access_token)
@@ -68,7 +68,7 @@ class AppendNotionPageTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         page_id = arguments["page_id"]
         content = arguments["content"]
         try:

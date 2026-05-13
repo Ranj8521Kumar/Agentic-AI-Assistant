@@ -30,7 +30,7 @@ class SendOutlookEmailTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         payload = {
             "message": {
                 "subject": arguments["subject"],
@@ -72,7 +72,7 @@ class ReadOutlookInboxTool(BaseTool):
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         top = min(int(arguments.get("top", 10)), 50)
         try:
             async with httpx.AsyncClient() as client:

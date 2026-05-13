@@ -208,7 +208,6 @@ class AgentOrchestrator:
                         try:
                             google_account = await self.auth_service.get_connected_account(user_id, "google")
                             if google_account and google_account.encrypted_access_token:
-                                from app.services.google_token_service import refresh_google_token
                                 g_token = await refresh_google_token(self.auth_service, google_account)
                                 extra_tokens = {"google": g_token}
                         except Exception:

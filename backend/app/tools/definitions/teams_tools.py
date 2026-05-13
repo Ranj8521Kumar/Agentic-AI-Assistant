@@ -413,9 +413,7 @@ class SendTeamsMessageTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         message = arguments["message"]
         recipient_email = arguments.get("recipient_email")
         team_id = arguments.get("team_id")
@@ -533,9 +531,7 @@ class ReadTeamsMessagesTool(BaseTool):
             },
         )
 
-    async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
-    ) -> dict[str, Any]:
+    async def execute(self, arguments: dict[str, Any], user_id: str, access_token: str, **kwargs) -> dict[str, Any]:
         recipient_email: str | None = arguments.get("recipient_email")
         limit: int = min(int(arguments.get("limit", 10)), 50)
 
