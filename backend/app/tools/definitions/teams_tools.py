@@ -53,7 +53,8 @@ class CreateTeamsMeetingTool(BaseTool):
         )
 
     async def execute(
-        self, arguments: dict[str, Any], user_id: str, access_token: str
+        self, arguments: dict[str, Any], user_id: str, access_token: str,
+        extra_tokens: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         subject = arguments["subject"]
         start_dt = arguments["start_datetime"]
@@ -150,60 +151,126 @@ class CreateTeamsMeetingTool(BaseTool):
                 )
                 event_id = data.get("id", "")
 
-                # ── Explicitly email each attendee ────────────────────────────
-                # Calendar invites can silently fail across tenants (e.g. personal
-                # account → org/edu account). Sending a direct email guarantees
-                # delivery with all meeting details.
+                # ── Email each attendee ───────────────────────────────────────
+                # Strategy: Gmail-FIRST (reliable cross-domain delivery).
+                # Outlook /me/sendMail silently accepts the API request (HTTP 202)
+                # even when delivery fails at SMTP level — so API success ≠ delivered.
+                # Gmail is used when Google is connected; Outlook is the fallback
+                # only when Gmail is unavailable.
                 email_errors: list[str] = []
-                if attendees:
-                    for attendee_email in attendees:
-                        mail_body: dict[str, Any] = {
-                            "message": {
-                                "subject": f"Meeting Invitation: {subject}",
-                                "body": {
-                                    "contentType": "HTML",
-                                    "content": (
-                                        f"<p>Hello,</p>"
-                                        f"<p>You have been invited to the following meeting:</p>"
-                                        f"<table style='border-collapse:collapse;font-family:Arial,sans-serif'>"
-                                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Title</td>"
-                                        f"<td style='padding:6px 12px'>{subject}</td></tr>"
-                                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Date &amp; Time</td>"
-                                        f"<td style='padding:6px 12px'>{start_dt_plain} IST – {end_dt_plain} IST (GMT+5:30)</td></tr>"
-                                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Join Link</td>"
-                                        f"<td style='padding:6px 12px'>"
-                                        f"<a href='{join_url}'>Click here to join the meeting</a>"
-                                        f"</td></tr>"
-                                        f"</table>"
-                                        f"<br><p><b>Note:</b> You may be asked to sign in with a Microsoft account. "
-                                        f"If you don't have one, click <b>'Join as a guest'</b> on the login page "
-                                        f"to enter the meeting directly from your browser — no account required.</p>"
-                                        f"<p>Please add this to your calendar.</p>"
-                                    ),
-                                },
-                                "toRecipients": [
-                                    {"emailAddress": {"address": attendee_email}}
-                                ],
-                            },
-                            "saveToSentItems": "true",
-                        }
-                        async with httpx.AsyncClient() as client:
-                            mail_resp = await client.post(
-                                f"{GRAPH_BASE}/me/sendMail",
-                                json=mail_body,
-                                headers=headers,
-                            )
-                        if not mail_resp.is_success:
-                            try:
-                                merr = mail_resp.json().get("error", {})
-                                email_errors.append(
-                                    f"{attendee_email}: {merr.get('message', mail_resp.text)}"
-                                )
-                            except Exception:
-                                email_errors.append(f"{attendee_email}: {mail_resp.text}")
+                gmail_used = False
+                google_token: str | None = (extra_tokens or {}).get("google")
 
+                def _build_html_body() -> str:
+                    return (
+                        f"<p>Hello,</p>"
+                        f"<p>You have been invited to the following meeting:</p>"
+                        f"<table style='border-collapse:collapse;font-family:Arial,sans-serif'>"
+                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Title</td>"
+                        f"<td style='padding:6px 12px'>{subject}</td></tr>"
+                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Date &amp; Time</td>"
+                        f"<td style='padding:6px 12px'>{start_dt_plain} IST &ndash; {end_dt_plain} IST (GMT+5:30)</td></tr>"
+                        f"<tr><td style='padding:6px 12px;font-weight:bold'>Join Link</td>"
+                        f"<td style='padding:6px 12px'>"
+                        f"<a href='{join_url}'>Click here to join the meeting</a>"
+                        f"</td></tr>"
+                        f"</table>"
+                        f"<br><p><b>Note:</b> You may be asked to sign in with a Microsoft account. "
+                        f"If you don't have one, click <b>'Join as a guest'</b> on the login page "
+                        f"to enter the meeting directly from your browser &mdash; no account required.</p>"
+                        f"<p>Please add this to your calendar.</p>"
+                    )
+
+                if attendees:
+                    if google_token:
+                        # ── Primary: Gmail ────────────────────────────────────
+                        import base64
+                        from email.mime.multipart import MIMEMultipart
+                        from email.mime.text import MIMEText as _MIMEText
+                        from google.oauth2.credentials import Credentials
+                        from googleapiclient.discovery import build
+                        from app.config import settings
+
+                        try:
+                            g_creds = Credentials(
+                                token=google_token,
+                                token_uri="https://oauth2.googleapis.com/token",
+                                client_id=settings.GOOGLE_CLIENT_ID,
+                                client_secret=settings.GOOGLE_CLIENT_SECRET,
+                            )
+                            gmail = build("gmail", "v1", credentials=g_creds)
+                            gmail_failures: list[str] = []
+
+                            for attendee_email in attendees:
+                                try:
+                                    mime = MIMEMultipart("alternative")
+                                    mime["to"] = attendee_email
+                                    mime["subject"] = f"Meeting Invitation: {subject}"
+                                    mime.attach(_MIMEText(_build_html_body(), "html"))
+                                    raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+                                    gmail.users().messages().send(
+                                        userId="me", body={"raw": raw}
+                                    ).execute()
+                                except Exception as ge:
+                                    gmail_failures.append(f"{attendee_email}: {ge}")
+
+                            gmail_used = True
+                            email_errors = gmail_failures
+
+                        except Exception as gmail_init_err:
+                            # Gmail unavailable — fall back to Outlook
+                            gmail_used = False
+                            outlook_failures: list[str] = []
+                            for attendee_email in attendees:
+                                mail_body: dict[str, Any] = {
+                                    "message": {
+                                        "subject": f"Meeting Invitation: {subject}",
+                                        "body": {"contentType": "HTML", "content": _build_html_body()},
+                                        "toRecipients": [{"emailAddress": {"address": attendee_email}}],
+                                    },
+                                    "saveToSentItems": "true",
+                                }
+                                async with httpx.AsyncClient() as client:
+                                    mail_resp = await client.post(
+                                        f"{GRAPH_BASE}/me/sendMail",
+                                        json=mail_body, headers=headers,
+                                    )
+                                if not mail_resp.is_success:
+                                    try:
+                                        merr = mail_resp.json().get("error", {})
+                                        outlook_failures.append(f"{attendee_email}: {merr.get('message', mail_resp.text)}")
+                                    except Exception:
+                                        outlook_failures.append(f"{attendee_email}: {mail_resp.text}")
+                            email_errors = outlook_failures
+
+                    else:
+                        # ── No Google connected: use Outlook ──────────────────
+                        outlook_failures = []
+                        for attendee_email in attendees:
+                            mail_body = {
+                                "message": {
+                                    "subject": f"Meeting Invitation: {subject}",
+                                    "body": {"contentType": "HTML", "content": _build_html_body()},
+                                    "toRecipients": [{"emailAddress": {"address": attendee_email}}],
+                                },
+                                "saveToSentItems": "true",
+                            }
+                            async with httpx.AsyncClient() as client:
+                                mail_resp = await client.post(
+                                    f"{GRAPH_BASE}/me/sendMail",
+                                    json=mail_body, headers=headers,
+                                )
+                            if not mail_resp.is_success:
+                                try:
+                                    merr = mail_resp.json().get("error", {})
+                                    outlook_failures.append(f"{attendee_email}: {merr.get('message', mail_resp.text)}")
+                                except Exception:
+                                    outlook_failures.append(f"{attendee_email}: {mail_resp.text}")
+                        email_errors = outlook_failures
+
+                via = " (via Gmail)" if gmail_used else " (via Outlook)"
                 email_note = (
-                    f" Email invitations sent to {len(attendees)} attendee(s)."
+                    f" Email invitations sent to {len(attendees)} attendee(s){via}."
                     if not email_errors
                     else f" Email delivery failed for: {'; '.join(email_errors)}"
                 )
