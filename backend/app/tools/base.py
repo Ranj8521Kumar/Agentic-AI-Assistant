@@ -48,9 +48,12 @@ class BaseTool(ABC):
         arguments: dict[str, Any],
         user_id: str,
         access_token: str,
+        extra_tokens: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
         Execute the tool and return a structured result dict.
+        extra_tokens: optional dict of {provider: token} for secondary providers
+        (e.g. {"google": "<token>"} passed to a Microsoft tool for Gmail fallback).
         Must raise ToolExecutionError on failure.
         """
         ...

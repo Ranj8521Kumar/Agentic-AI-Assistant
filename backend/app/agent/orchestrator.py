@@ -201,10 +201,24 @@ class AgentOrchestrator:
 
                 # Execute the tool
                 try:
+                    # For Microsoft tools, also retrieve Google token (if connected)
+                    # so the tool can fall back to Gmail for email delivery.
+                    extra_tokens: dict[str, str] | None = None
+                    if provider == "microsoft" and "google" in connected_providers:
+                        try:
+                            google_account = await self.auth_service.get_connected_account(user_id, "google")
+                            if google_account and google_account.encrypted_access_token:
+                                from app.services.google_token_service import refresh_google_token
+                                g_token = await refresh_google_token(self.auth_service, google_account)
+                                extra_tokens = {"google": g_token}
+                        except Exception:
+                            pass  # Gmail fallback is best-effort; don't block the main tool
+
                     result = await tool.execute(
                         arguments=arguments,
                         user_id=str(user_id),
                         access_token=access_token,
+                        extra_tokens=extra_tokens,
                     )
                     finished = datetime.now(timezone.utc)
                     # Update audit record — success
