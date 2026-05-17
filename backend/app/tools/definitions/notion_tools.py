@@ -1132,11 +1132,33 @@ class QueryNotionDatabaseTool(BaseTool):
                 if filter_arg and filter_arg.get("column")
                 else ""
             )
+
+            # Build a pre-formatted markdown table so the LLM displays ALL rows
+            formatted_table = ""
+            if rows:
+                # Collect column names (skip internal id/url keys)
+                col_keys = [k for k in rows[0].keys() if k not in ("id", "url")]
+                header = " | ".join(col_keys)
+                separator = " | ".join(["---"] * len(col_keys))
+                data_rows = []
+                for row in rows:
+                    cells = [str(row.get(k, "")) for k in col_keys]
+                    data_rows.append(" | ".join(cells))
+                formatted_table = "\n".join(
+                    [f"| {header} |", f"| {separator} |"]
+                    + [f"| {r} |" for r in data_rows]
+                )
+
             return {
                 "success": True,
                 "count":   len(rows),
                 "rows":    rows,
-                "summary": f"Found {len(rows)} row(s) in '{database_name or database_id}'{filter_desc}.",
+                "formatted_table": formatted_table,
+                "summary": (
+                    f"Found {len(rows)} row(s) in '{database_name or database_id}'{filter_desc}. "
+                    f"IMPORTANT: Display ALL {len(rows)} rows to the user using the formatted_table below — "
+                    f"do not summarize or omit any rows.\n\n{formatted_table}"
+                ),
             }
         except ToolExecutionError:
             raise
