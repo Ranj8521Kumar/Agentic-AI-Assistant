@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.orchestrator import AgentOrchestrator, TOOL_EVENT_PREFIX
@@ -144,11 +144,76 @@ async def list_conversations(
         {
             "id": str(c.id),
             "title": c.title,
+            "is_pinned": c.is_pinned,
             "created_at": c.created_at.isoformat(),
             "updated_at": c.updated_at.isoformat(),
         }
         for c in conversations
     ]
+
+
+class RenameConversationRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+
+class PinConversationRequest(BaseModel):
+    pinned: bool
+
+
+@router.delete("/conversations/{conversation_id}", summary="Delete a conversation")
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    chat_service = ChatService(db)
+    deleted = await chat_service.delete_conversation(conversation_id, current_user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.commit()
+    return {"ok": True}
+
+
+@router.patch("/conversations/{conversation_id}/rename", summary="Rename a conversation")
+async def rename_conversation(
+    conversation_id: uuid.UUID,
+    request: RenameConversationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    chat_service = ChatService(db)
+    convo = await chat_service.rename_conversation(
+        conversation_id, current_user_id, request.title.strip()
+    )
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.commit()
+    return {
+        "id": str(convo.id),
+        "title": convo.title,
+        "is_pinned": convo.is_pinned,
+        "updated_at": convo.updated_at.isoformat(),
+    }
+
+
+@router.patch("/conversations/{conversation_id}/pin", summary="Pin or unpin a conversation")
+async def pin_conversation(
+    conversation_id: uuid.UUID,
+    request: PinConversationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    chat_service = ChatService(db)
+    convo = await chat_service.toggle_pin(conversation_id, current_user_id, request.pinned)
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.commit()
+    return {
+        "id": str(convo.id),
+        "title": convo.title,
+        "is_pinned": convo.is_pinned,
+        "updated_at": convo.updated_at.isoformat(),
+    }
 
 
 @router.get("/conversations/{conversation_id}/messages", summary="Get messages in a conversation")
