@@ -21,7 +21,7 @@ const OAUTH_BASE = [
 
 const TOKEN_INTEGRATIONS = [
   { id: "jira", label: "Jira", description: "Create, update, and search Jira issues", placeholder: "Atlassian API token" },
-  { id: "notion", label: "Notion", description: "Read and write Notion pages", placeholder: "Notion integration token" },
+  { id: "notion", label: "Notion", description: "Search, read, create, and write Notion pages", placeholder: "Notion integration token" },
 ];
 
 export default function SettingsPage() {

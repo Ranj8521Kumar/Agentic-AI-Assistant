@@ -83,6 +83,13 @@ def bootstrap_registry() -> None:
     from app.tools.definitions.notion_tools import (
         ReadNotionPageTool,
         AppendNotionPageTool,
+        SearchNotionPageTool,
+        CreateNotionPageTool,
+        ArchiveNotionPageTool,
+        CreateNotionDatabaseTool,
+        AddNotionDatabaseRowTool,
+        UpdateNotionDatabaseRowTool,
+        QueryNotionDatabaseTool,
     )
     from app.tools.definitions.outlook_tools import (
         SendOutlookEmailTool,
@@ -107,6 +114,13 @@ def bootstrap_registry() -> None:
         SearchJiraIssuesTool(),
         ReadNotionPageTool(),
         AppendNotionPageTool(),
+        SearchNotionPageTool(),
+        CreateNotionPageTool(),
+        ArchiveNotionPageTool(),
+        CreateNotionDatabaseTool(),
+        AddNotionDatabaseRowTool(),
+        UpdateNotionDatabaseRowTool(),
+        QueryNotionDatabaseTool(),
         SendOutlookEmailTool(),
         ReadOutlookInboxTool(),
         SendTeamsMessageTool(),
