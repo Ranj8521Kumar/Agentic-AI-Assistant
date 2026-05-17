@@ -113,6 +113,15 @@ export async function apiDelete(path: string): Promise<void> {
   if (!res.ok) throw new Error(await res.text());
 }
 
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const res = await apiFetch(path, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // ── Streaming chat ────────────────────────────────────────────────────────────
 
 /**
