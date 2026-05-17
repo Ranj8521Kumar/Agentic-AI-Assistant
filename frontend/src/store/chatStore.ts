@@ -4,7 +4,7 @@
 
 import { create } from "zustand";
 import { Conversation, Message, ToolEvent, User } from "@/types";
-import { streamChat, apiGet, setTokens, clearTokens } from "@/lib/api";
+import { streamChat, apiGet, apiDelete, apiPatch, setTokens, clearTokens } from "@/lib/api";
 
 const TOOL_EVENT_PREFIX = "__tool_event__:";
 
@@ -21,6 +21,9 @@ interface ChatStore {
   activeConversationId: string | null;
   setConversations: (convos: Conversation[]) => void;
   setActiveConversation: (id: string | null) => void;
+  deleteConversation: (id: string) => Promise<void>;
+  renameConversation: (id: string, title: string) => Promise<void>;
+  pinConversation: (id: string, pinned: boolean) => Promise<void>;
 
   // Messages
   messages: Message[];
@@ -94,6 +97,64 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         .catch(() => {
           // Silent fail — user still sees empty conversation
         });
+    }
+  },
+
+  deleteConversation: async (id: string) => {
+    // Optimistic remove
+    set((state) => ({
+      conversations: state.conversations.filter((c) => c.id !== id),
+      activeConversationId: state.activeConversationId === id ? null : state.activeConversationId,
+      messages: state.activeConversationId === id ? [] : state.messages,
+    }));
+    try {
+      await apiDelete(`/chat/conversations/${id}`);
+    } catch {
+      // Re-fetch to restore if request failed
+      apiGet<Conversation[]>("/chat/conversations")
+        .then((convos) => set({ conversations: convos }))
+        .catch(() => {});
+    }
+  },
+
+  renameConversation: async (id: string, title: string) => {
+    // Optimistic update
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === id ? { ...c, title } : c
+      ),
+    }));
+    try {
+      await apiPatch(`/chat/conversations/${id}/rename`, { title });
+    } catch {
+      // Re-fetch on failure
+      apiGet<Conversation[]>("/chat/conversations")
+        .then((convos) => set({ conversations: convos }))
+        .catch(() => {});
+    }
+  },
+
+  pinConversation: async (id: string, pinned: boolean) => {
+    // Optimistic update
+    set((state) => {
+      const updated = state.conversations.map((c) =>
+        c.id === id ? { ...c, is_pinned: pinned } : c
+      );
+      // Re-sort: pinned first, then by updated_at desc
+      updated.sort((a, b) => {
+        if (a.is_pinned === b.is_pinned) {
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+        }
+        return a.is_pinned ? -1 : 1;
+      });
+      return { conversations: updated };
+    });
+    try {
+      await apiPatch(`/chat/conversations/${id}/pin`, { pinned });
+    } catch {
+      apiGet<Conversation[]>("/chat/conversations")
+        .then((convos) => set({ conversations: convos }))
+        .catch(() => {});
     }
   },
 
